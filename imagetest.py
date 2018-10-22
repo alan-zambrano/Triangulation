@@ -4,13 +4,26 @@ import matplotlib.pyplot as plt
 import numpy as np                 #array(), zeros()
 from random import *               #random()
 from scipy.spatial import Delaunay #Delaunay()
+import queue                       #queue()
 
 #getting weird stack overflow in getAVGColor when using the hummingbird image
 imgin = imageio.imread('large.png')
 imgout = np.zeros((imgin.shape[0], imgin.shape[1], 3), dtype = np.uint8)
-#plt.imshow(imgin)
 points = np.empty((0,2), int)
-
+class Pixel:
+	def __init__(self, x, y, color):
+		self.coor = (x,y)
+		self.x = x
+		self.y = y
+		self.colorR = color[0]
+		self.colorG = color[1]
+		self.colorB = color[2]
+	def __eq__(self, other):
+		return self.x == other.x and self.y == other.y
+	def __str__(self):
+		return "[%s,%s] [%s, %s, %s]\n" % (self.x, self.y, self.colorR, self.colorG, self.colorB)
+	def __repr__(self):
+		return "[%s,%s] [%s, %s, %s]\n" % (self.x, self.y, self.colorR, self.colorG, self.colorB)
 #@tri:[[x,y],[x,y],[x,y]] array that defines a triangle
 #return: [x,y] centroid for @tri
 def getCentroid(tri):
@@ -29,74 +42,85 @@ def isInTri(point, tri1, tri2, tri3):
 	b3 = sign(point, tri3, tri1) < 0
 	return ((b1 == b2) and (b2 == b3))
 
-#@isTouched: Used to prevent calculating a value twice
-#@AVGColor: an updating average of RGB values within the triangle @tri
 #@tri: [[x,y],[x,y],[x,y]] 3 points that define a triangle
-#@numpts: used to calculate the average
 #@point: [x,y] point on imgin
 #
-#Traverses through points within @tri by recursing through the top, left, right
-# and bottom pixel relative to the current @point.
-isTouched = np.empty((0,2), int)
-AVGColor = np.zeros((3,), float)
-numpts = 0
+#Instead of recursing, this algorithm pushes Pixel objects to the queue @pixQ
+#
+#return: Pixel object containing the average RGB of @tri
 def getAVGColor(point, tri):
-	global isTouched
-	global AVGColor
-	global numpts
-	global imgin  #readonly
-	global imgout #readonly
-
-	#if current point is out of bounds
-	if (point[0] < 0) or (point[0] > imgin.shape[0]) or\
-		(point[1] < 0) or (point[1] > imgin.shape[1]):
-		return
-	#if we've already seen this point
-#https://stackoverflow.com/questions/25823608/find-matching-rows-in-2-dimensional-numpy-array
-	if len((isTouched == point).all(axis = 1).nonzero()[0]) > 0:
-		return
-	#if @point is not within triangle @tri
+	global imgin
+	AVGColor = Pixel(point[0], point[1], imgin[point[1], point[0], :])
 	if(not isInTri(point, tri[0], tri[1], tri[2])):
-		return
-		
-	#add point to known points
-	isTouched = np.append(isTouched, [point], axis = 0)
-	#add current points's RGB values to rolling average
-	AVGColor[0] = (numpts * AVGColor[0] + imgin[point[1], point[0], 0])/float(numpts+1)
-	AVGColor[1] = (numpts * AVGColor[1] + imgin[point[1], point[0], 1])/float(numpts+1)
-	AVGColor[2] = (numpts * AVGColor[2] + imgin[point[1], point[0], 2])/float(numpts+1)
-	numpts += 1
-	#pdb.set_trace()
+		return AVGColor
+	touched = []
+	numpts = 0
+	pixQ = queue.Queue(0)
+	currPix = Pixel(point[0], point[1], imgin[point[1], point[0], :])
+	pixQ.put(currPix)
+	#i = 0
+	while(not pixQ.empty()):
+		currPix = pixQ.get()
+		if(not isInTri(currPix.coor, tri[0], tri[1], tri[2])):
+			continue
+		if(currPix in touched):
+			continue
+			
+		touched.append(currPix)
 
-	#recurse through points top, down, left, right of current point
-	getAVGColor([point[0]-1,point[1]], tri)
-	getAVGColor([point[0]+1,point[1]], tri)
-	getAVGColor([point[0],point[1]-1], tri)
-	getAVGColor([point[0],point[1]+1], tri)
-	return
+		#update the average
+		AVGColor.colorR = (numpts * AVGColor.colorR + currPix.colorR)/(numpts+1)
+		AVGColor.colorG = (numpts * AVGColor.colorG + currPix.colorG)/(numpts+1)
+		AVGColor.colorB = (numpts * AVGColor.colorB + currPix.colorB)/(numpts+1)
+		numpts += 1
+		#print(currPix.coor)
+		#if(i > 1000):
+		#	pdb.set_trace()
+		west = Pixel(currPix.x-1, currPix.y, imgin[currPix.y, currPix.x-1 ,:])
+		pixQ.put(west)
+		east = Pixel(currPix.x+1, currPix.y, imgin[currPix.y, currPix.x+1,:])
+		pixQ.put(east)
+		south = Pixel(currPix.x, currPix.y-1, imgin[currPix.y-1, currPix.x,:])
+		pixQ.put(south)
+		north = Pixel(currPix.x, currPix.y+1, imgin[currPix.y-1, currPix.x, :])
+		pixQ.put(north)
+		#i += 1
 
-#@point: [x,y] array of a point in polygon to rasterize
+	return AVGColor
+
+#@pix: Pixel object containing the starting position and color
 #@tri: [[x,y],[x,y],[x,y]] array of three points defining a triangle
-#@color: [R,G,B] array of three uint8 values describing the color to fill
-def rasterize(point, tri):
+#
+#Uses the same algorithm as getAVGColor() to rasterize a triangle @tri
+def rasterize(pix, tri):
 	global imgout
-	global AVGColor
+	#if point is out of bounds
+	if(not isInTri(pix.coor, tri[0], tri[1], tri[2])):
+		return
+	#if point has already been rasterized
+	if(imgout[pix.y, pix.x, 0] != 0):
+		return
+	pixQ = queue.Queue(0)
+	pixQ.put(pix)
+	while(not pixQ.empty()):
+		currPix = pixQ.get()
+		if(not isInTri(currPix.coor, tri[0], tri[1], tri[2])):
+			continue
+		if(imgout[currPix.y, currPix.x, 0] != 0):
+			continue
+		#rasterize current pixel
+		imgout[currPix.y, currPix.x, 0] = pix.colorR
+		imgout[currPix.y, currPix.x, 1] = pix.colorG
+		imgout[currPix.y, currPix.x, 2] = pix.colorB
+		west = Pixel(currPix.x-1, currPix.y, [0,0,0])
+		pixQ.put(west)
+		east = Pixel(currPix.x+1, currPix.y, [0,0,0])
+		pixQ.put(east)
+		south = Pixel(currPix.x, currPix.y-1, [0,0,0])
+		pixQ.put(south)
+		north = Pixel(currPix.x, currPix.y+1, [0,0,0])
+		pixQ.put(north)
 
-	#if we've already seen this point
-	if(imgout[point[1],point[0], 0] != 0):
-		return
-	#if point is not within triangle defined by tri
-	if(not isInTri(point, tri[0], tri[1], tri[2])):
-		return
-	#color the pixel
-	imgout[point[1],point[0], 0] = AVGColor[0]
-	imgout[point[1],point[0], 1] = AVGColor[1]
-	imgout[point[1],point[0], 2] = AVGColor[2]
-	#recurse through points top, down, left, right of current point
-	rasterize([point[0]-1,point[1]], tri)
-	rasterize([point[0]+1,point[1]], tri)
-	rasterize([point[0],point[1]-1], tri)
-	rasterize([point[0],point[1]+1], tri)
 	return
 
 #img.shape = (1603, 2403, 3)
@@ -118,14 +142,14 @@ for i in range(tris.simplices.shape[0]):
 	AVGColor = np.zeros((3,), float)
 	numpts = 0
 	centroid = getCentroid(points[tris.simplices[i]])
-	getAVGColor(centroid, points[tris.simplices[i]])
-	rasterize(centroid, points[tris.simplices[i]])
-	rasterize(points[tris.simplices[i,0]], points[tris.simplices[i]])
-	rasterize(points[tris.simplices[i,1]], points[tris.simplices[i]])
-	rasterize(points[tris.simplices[i,2]], points[tris.simplices[i]])
+	print("tri number: %s" % i)
+	print("in AVGColor...")
+	cent = getAVGColor(centroid, points[tris.simplices[i]])
+	print("rasterizing")
+	rasterize(cent, points[tris.simplices[i]])
 
 plt.triplot(points[:,0], points[:,1], tris.simplices.copy())
 plt.imshow(imgout)
-imageio.imwrite('medium_test.png', imgout)
+imageio.imwrite('largetest.png', imgout)
 #plt.plot(points[:,0], points[:,1], 'o')
 plt.show()
