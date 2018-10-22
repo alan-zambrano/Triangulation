@@ -6,7 +6,7 @@ from random import *               #random()
 from scipy.spatial import Delaunay #Delaunay()
 import queue                       #queue()
 
-imgin = imageio.imread('large.png')
+imgin = imageio.imread('Hummingbird')
 imgout = np.zeros((imgin.shape[0], imgin.shape[1], 3), dtype = np.uint8)
 points = np.empty((0,2), int)
 class Pixel:
@@ -47,25 +47,24 @@ def isInTri(point, tri1, tri2, tri3):
 #Instead of recursing, this algorithm pushes Pixel objects to the queue @pixQ
 #
 #return: Pixel object containing the average RGB of @tri
+touched = np.zeros((imgin.shape[0], imgin.shape[1]), dtype = np.bool_)
 def getAVGColor(point, tri):
 	global imgin
+	global touched
 	AVGColor = Pixel(point[0], point[1], imgin[point[1], point[0], :])
 	if(not isInTri(point, tri[0], tri[1], tri[2])):
 		return AVGColor
-	touched = []
 	numpts = 0
 	pixQ = queue.Queue(0)
 	currPix = Pixel(point[0], point[1], imgin[point[1], point[0], :])
 	pixQ.put(currPix)
-	#i = 0
+	i = 0
 	while(not pixQ.empty()):
 		currPix = pixQ.get()
-		if(not isInTri(currPix.coor, tri[0], tri[1], tri[2])):
-			continue
-		if(currPix in touched):
+		if(touched[currPix.y, currPix.x]):
 			continue
 			
-		touched.append(currPix)
+		touched[currPix.y, currPix.x] = True
 
 		#update the average
 		AVGColor.colorR = (numpts * AVGColor.colorR + currPix.colorR)/(numpts+1)
@@ -73,17 +72,21 @@ def getAVGColor(point, tri):
 		AVGColor.colorB = (numpts * AVGColor.colorB + currPix.colorB)/(numpts+1)
 		numpts += 1
 		#print(currPix.coor)
-		#if(i > 1000):
+		#if(i > 30000):
 		#	pdb.set_trace()
-		west = Pixel(currPix.x-1, currPix.y, imgin[currPix.y, currPix.x-1 ,:])
-		pixQ.put(west)
-		east = Pixel(currPix.x+1, currPix.y, imgin[currPix.y, currPix.x+1,:])
-		pixQ.put(east)
-		south = Pixel(currPix.x, currPix.y-1, imgin[currPix.y-1, currPix.x,:])
-		pixQ.put(south)
-		north = Pixel(currPix.x, currPix.y+1, imgin[currPix.y-1, currPix.x, :])
-		pixQ.put(north)
-		#i += 1
+		if(isInTri([currPix.x-1, currPix.y], tri[0], tri[1], tri[2])):
+			west = Pixel(currPix.x-1, currPix.y, imgin[currPix.y, currPix.x-1 ,:])
+			pixQ.put(west)
+		if(isInTri([currPix.x+1, currPix.y], tri[0], tri[1], tri[2])):
+			east = Pixel(currPix.x+1, currPix.y, imgin[currPix.y, currPix.x+1,:])
+			pixQ.put(east)
+		if(isInTri([currPix.x, currPix.y-1], tri[0], tri[1], tri[2])):
+			south = Pixel(currPix.x, currPix.y-1, imgin[currPix.y-1, currPix.x,:])
+			pixQ.put(south)
+		if(isInTri([currPix.x, currPix.y+1], tri[0], tri[1], tri[2])):
+			north = Pixel(currPix.x, currPix.y+1, imgin[currPix.y-1, currPix.x, :])
+			pixQ.put(north)
+		i += 1
 
 	return AVGColor
 
@@ -103,22 +106,25 @@ def rasterize(pix, tri):
 	pixQ.put(pix)
 	while(not pixQ.empty()):
 		currPix = pixQ.get()
-		if(not isInTri(currPix.coor, tri[0], tri[1], tri[2])):
-			continue
 		if(imgout[currPix.y, currPix.x, 0] != 0):
 			continue
 		#rasterize current pixel
 		imgout[currPix.y, currPix.x, 0] = pix.colorR
 		imgout[currPix.y, currPix.x, 1] = pix.colorG
 		imgout[currPix.y, currPix.x, 2] = pix.colorB
-		west = Pixel(currPix.x-1, currPix.y, [0,0,0])
-		pixQ.put(west)
-		east = Pixel(currPix.x+1, currPix.y, [0,0,0])
-		pixQ.put(east)
-		south = Pixel(currPix.x, currPix.y-1, [0,0,0])
-		pixQ.put(south)
-		north = Pixel(currPix.x, currPix.y+1, [0,0,0])
-		pixQ.put(north)
+		
+		if(isInTri([currPix.x-1, currPix.y], tri[0], tri[1], tri[2])):
+			west = Pixel(currPix.x-1, currPix.y, [0,0,0])
+			pixQ.put(west)
+		if(isInTri([currPix.x+1, currPix.y], tri[0], tri[1], tri[2])):
+			east = Pixel(currPix.x+1, currPix.y, [0,0,0])
+			pixQ.put(east)
+		if(isInTri([currPix.x, currPix.y-1], tri[0], tri[1], tri[2])):
+			south = Pixel(currPix.x, currPix.y-1, [0,0,0])
+			pixQ.put(south)
+		if(isInTri([currPix.x, currPix.y+1], tri[0], tri[1], tri[2])):
+			north = Pixel(currPix.x, currPix.y+1, [0,0,0])
+			pixQ.put(north)
 
 	return
 
@@ -127,7 +133,7 @@ def rasterize(pix, tri):
 #random points on the image
 for i in range(imgin.shape[1]):
 	for j in range(imgin.shape[0]):
-		if random() < .001:
+		if random() < .0001:
 			points = np.append(points, [[i,j]], axis = 0)
 #points = np.array([[5,38],[17,98],[23, 94],[26,74],[28,51],[43,71],[52,60],\
 #[57,37],[60,97],[65,76],[90,56],[91,85]])
