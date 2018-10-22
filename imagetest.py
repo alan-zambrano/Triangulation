@@ -6,7 +6,6 @@ from random import *               #random()
 from scipy.spatial import Delaunay #Delaunay()
 import queue                       #queue()
 
-#getting weird stack overflow in getAVGColor when using the hummingbird image
 imgin = imageio.imread('large.png')
 imgout = np.zeros((imgin.shape[0], imgin.shape[1], 3), dtype = np.uint8)
 points = np.empty((0,2), int)
